@@ -6,9 +6,10 @@ import numpy as np
 import pandas as pd
 from sklearn.preprocessing import StandardScaler
 
-from libpysal.weights import attach_islands
+from libpysal.weights import attach_islands, W, lag_spatial
 from libpysal.weights.contiguity import Queen, Rook
-from libpysal.weights.distance import KNN
+from libpysal.weights.distance import KNN, Kernel
+from libpysal.weights.util import fill_diagonal
 
 from .._data import _Map
 from .cluster import (
@@ -33,6 +34,9 @@ ModelResults = namedtuple(
 def cluster(
     gdf,
     n_clusters=6,
+    convert_egohoods=False
+    w=None,
+    row_standardize=False,
     method=None,
     best_model=False,
     columns=None,
@@ -51,6 +55,13 @@ def cluster(
         long-form GeoDataFrame containing neighborhood attributes
     n_clusters : int, required
         the number of clusters to model. The default is 6).
+    convert_egohood : bool, optional
+        if True, the primitive units will be converted to egohoods prioir to clustering
+    w : pySAL W object, optional
+        if convert_egohood is True, a pysal W object could be passed to compute the weight if it already exists,
+        otherwise weights will be bulit using Kernel weight
+    row_standardize : bool , optional
+        if set to true, the weight matrix wil be row standardized
     method : str in ['kmeans', 'ward', 'affinity_propagation', 'spectral','gaussian_mixture', 'hdbscan'], required
         the clustering algorithm used to identify neighborhood types
     best_model : bool, optional
@@ -121,7 +132,21 @@ def cluster(
     # this is the dataset we'll operate on
     data = gdf.copy()[columns]
     data = data.dropna(how="any", subset=columns)
-
+ 
+    if convert_egohood:
+        
+        if w is None:
+            w_kernel = Kernel.from_dataframe(gdf)
+            w = W(w_kernel.neighbors , w_kernel.weights)
+            
+        w = fill_diagonal(w)
+        
+        if row_standardize:
+            w.set_transform('r')
+                
+        for each_attr in data.columns:
+            data[each_attr] = lag_spatial(w, data[each_attr])
+    
     if scaler:
 
         if pooling in ["fixed", "unique"]:
